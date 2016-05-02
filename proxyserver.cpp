@@ -44,5 +44,49 @@ int _tmain(int argc, _TCHAR* argv[])
 	printf("proxyserver is listening %d \n", ProxyPort);
 	ProxyParam *lpProxyParam;//代理服务器所需要的参数类型的指针，类型中包括发出请求的客户套接字，客户所请求的服务器端套接字
 	HANDLE hThread;//线程句柄预定义；
+	DWORD dwThreadID;
+	while (true){//代理服务器监听
+		acceptSocket = accept(proxyServer, NULL, NULL);
+		lpProxyParam = new ProxyParam;
+		if (NULL == lpProxyParam)
+		{
+			continue;
+		}
+		lpProxyParam->clientSocket = acceptSocket;
+		hThread = (HANDLE)_beginthreadex(NULL, 0, &ProxyThread, (LPVOID)lpProxyParam, 0, 0);
+		CloseHandle(hThread);
+		sleep(200);
+	}
+	closesocket(ProxyServer);
+	WSACleanup();
+	return 0;
+}
+BOOL InitSocket()
+{
+	WORD wVersionRequested;
+	WSADATA wsaData;
+	int err;
+	wVersionRequested = MAKEWORD(2, 2);
+	err = WSAStartup(wVersionRequested, &wsaData);//加载套接字动态链接库
+	if (err != 0)
+	{
+		printf("fail to load dll winsokcet,error num: %d",WSAGetLastError());
+		return FALSE;
+	}
+	if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2)
+	{
+		printf("can not find the right winsock version");
+		WSACleanup();
+		return FALSE;
+	}
+	ProxyServer = socket(AF_INET, SOCK_STREAM, 0);//建议tcp代理套接字
+	if (INVALID_SOCKET == proxyServer)
+	{
+		printf("create socket failed,error num:%d", WSAGetLastError());
+		return FALSE;
+	}
+	ProxyServerAddr.sin_family = AF_INET;
+	ProxyServerAddr.sin_port = htons(ProxyPort);
+	ProxyServerAddr.sin_addr.S_un.S_addr=
 
 }
