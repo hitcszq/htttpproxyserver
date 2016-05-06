@@ -5,12 +5,12 @@
 #include <Windows.h>
 #include <process.h>
 #include <string.h>
- 
+
 #pragma comment(lib,"Ws2_32.lib")
 
 
 /*宏定义---------------------------------------------*/
-#define MAXSIZE 1024*500//发送数据报文的最大长度,500KB
+#define MAXSIZE 1024*1024*10//发送数据报文的最大长度,500KB
 #define HTTP_PORT 80 //http 服务器端口
 
 
@@ -138,7 +138,8 @@ BOOL InitSocket(){
 // Parameter: LPVOID lpParameter
 //************************************
 unsigned int __stdcall ProxyThread(LPVOID lpParameter){
-	char Buffer[MAXSIZE];
+	char *Buffer;
+	Buffer = new char[MAXSIZE];
 	char *CacheBuffer;
 	ZeroMemory(Buffer, MAXSIZE);
 	SOCKADDR_IN clientAddr;
@@ -148,19 +149,20 @@ unsigned int __stdcall ProxyThread(LPVOID lpParameter){
 	//从客户端接收http请求
 	recvSize = recv(((ProxyParam *)lpParameter)->clientSocket, Buffer, MAXSIZE, 0);
 	if (recvSize <= 0){
+		printf("连接客户端！！！\n");
 		goto error;
 	}
 	/*
 	1.先判断缓存是否命中
-		1.1若没有命中则直接请求对象，获取对象后，查看cache-control字段
-			1.1.1若可以缓存，则保存到本地（完整的报文），并发送回客户端
-			1.1.2若不可以缓存，则直接发送回客户端
-		1.2若缓存命中（是否过期：DATE+max-age与当前时间的对比）
-			1.2.1若没有过期，直接从缓存中读取，并发回客户端
-			1.2.2若过期，向服务器发送IF-MODIFIED-SINCE：LAST MODIFIED中的时间
-				1.2.2.1若返回200，则更新缓存，并返回客户端
-				1.2.2.2若返回304，则更新缓存，并返回客户端
-			
+	1.1若没有命中则直接请求对象，获取对象后，查看cache-control字段
+	1.1.1若可以缓存，则保存到本地（完整的报文），并发送回客户端
+	1.1.2若不可以缓存，则直接发送回客户端
+	1.2若缓存命中（是否过期：DATE+max-age与当前时间的对比）
+	1.2.1若没有过期，直接从缓存中读取，并发回客户端
+	1.2.2若过期，向服务器发送IF-MODIFIED-SINCE：LAST MODIFIED中的时间
+	1.2.2.1若返回200，则更新缓存，并返回客户端
+	1.2.2.2若返回304，则更新缓存，并返回客户端
+
 	*/
 	HttpHeader* httpHeader = new HttpHeader();
 	CacheBuffer = new char[recvSize + 1];
@@ -169,6 +171,7 @@ unsigned int __stdcall ProxyThread(LPVOID lpParameter){
 	ParseHttpHead(CacheBuffer, httpHeader);
 	delete CacheBuffer;
 	if (!ConnectToServer(&((ProxyParam *)lpParameter)->serverSocket, httpHeader->host)) {
+		printf("连接目标服务器！！！\n");
 		goto error;
 	}
 	printf("代理连接主机 %s 成功\n", httpHeader->host);
@@ -179,16 +182,25 @@ unsigned int __stdcall ProxyThread(LPVOID lpParameter){
 	ZeroMemory(Buffer, MAXSIZE);
 	recvSize = recv(((ProxyParam *)lpParameter)->serverSocket, Buffer, MAXSIZE, 0);
 	if (recvSize <= 0){
-		printf("WRONG！！！\n");
+		printf("接受数据出错！！！\n");
 		goto error;
 	}
 	//printf("目标服务器返回：%s\nOVER...", Buffer);
 	//将目标服务器返回的数据直接转发给客户端
 	ret = send(((ProxyParam *)lpParameter)->clientSocket, Buffer, recvSize, 0);
 	//错误处理
+	goto success;
 error:
 	printf("关闭套接字\n");
-	Sleep(200);
+	//Sleep(200);
+	closesocket(((ProxyParam*)lpParameter)->clientSocket);
+	closesocket(((ProxyParam*)lpParameter)->serverSocket);
+	delete lpParameter;
+	_endthreadex(0);
+	return 0;
+success:
+	printf("关闭套接字\n");
+	//Sleep();
 	closesocket(((ProxyParam*)lpParameter)->clientSocket);
 	closesocket(((ProxyParam*)lpParameter)->serverSocket);
 	delete lpParameter;
@@ -257,15 +269,18 @@ BOOL ConnectToServer(SOCKET *serverSocket, char *host){
 	serverAddr.sin_port = htons(HTTP_PORT);
 	HOSTENT *hostent = gethostbyname(host);
 	if (!hostent){
+		printf("解析域名出错！！！\n");
 		return FALSE;
 	}
 	in_addr Inaddr = *((in_addr*)*hostent->h_addr_list);
 	serverAddr.sin_addr.s_addr = inet_addr(inet_ntoa(Inaddr));
 	*serverSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (*serverSocket == INVALID_SOCKET){
+		printf("建立套接字出错！！！\n");
 		return FALSE;
 	}
 	if (connect(*serverSocket, (SOCKADDR *)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR){
+		printf("连接目标服务器函数出错！！！\n");
 		closesocket(*serverSocket);
 		return FALSE;
 	}
